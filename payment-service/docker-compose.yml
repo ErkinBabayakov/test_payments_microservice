@@ -1,0 +1,88 @@
+name: payment-service
+services:
+  payment-db:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: payment
+      POSTGRES_DB: payment
+    expose:
+      - "5432"
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment -d payment"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: payment
+      RABBITMQ_DEFAULT_PASS: payment
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+    env_file: .env
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+    depends_on:
+      payment-db:
+        condition: service_healthy
+
+  payment-service-backend:
+    build:
+      context: .
+    env_file:
+      - .env
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      RABBITMQ_URL: amqp://payment:payment@rabbitmq:5672/
+      API_KEY: ${API_KEY}
+      PAYMENT_EXCHANGE_NAME: ${PAYMENT_EXCHANGE_NAME}
+      PAYMENT_SUCCEEDED_ROUTING_KEY: ${PAYMENT_SUCCEEDED_ROUTING_KEY}
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+
+  consumer:
+    build:
+      context: .
+    env_file:
+      - .env
+    command: python -m app.workers.main
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      RABBITMQ_URL: amqp://payment:payment@rabbitmq:5672/
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  payment-db-data:
