@@ -12,6 +12,7 @@ webhook'ом. Реализованы Outbox pattern, идемпотентнос�
 - [Стек](#стек)
 - [Быстрый старт](#быстрый-старт)
 - [API](#api)
+- [Идемпотентность](#идемпотентность)
 - [Тесты](#тесты)
 ---
 
@@ -182,7 +183,7 @@ Docker Desktop запущен
 
 Установлены pytest, pytest-asyncio, testcontainers[postgres]
 
-# Запуск
+## Запуск
 ```python -m pytest tests/ -v  ```  
 
 Покрытые сценарии (tests/test_idempotency.py):
